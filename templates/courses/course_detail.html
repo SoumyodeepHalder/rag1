@@ -1,0 +1,117 @@
+{% extends "courses/base.html" %}
+{% block title %}{{ course.title }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start mb-3">
+  <div>
+    <a href="{% url 'home' %}" class="small text-decoration-none">&larr; All courses</a>
+    <h1 class="h3 mt-2 mb-1">{{ course.title }}</h1>
+    <p class="text-muted mb-0">{{ course.description }}</p>
+  </div>
+  <span class="badge text-bg-{% if course.status == 'ready' %}success{% elif course.status == 'failed' %}danger{% else %}warning{% endif %}">{{ course.status }}</span>
+</div>
+
+{% if course.error_message %}
+  <div class="alert alert-danger">{{ course.error_message }}</div>
+{% endif %}
+
+{% if course.learning_objectives %}
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-body">
+      <h2 class="h5">Learning objectives</h2>
+      <ul class="mb-0">
+        {% for objective in course.learning_objectives %}
+          <li>{{ objective }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+{% endif %}
+
+<div class="mb-3">
+  <h2 class="h5">Source PDFs</h2>
+  <ul class="mb-0">
+    {% for doc in course.documents.all %}
+      <li>{{ doc.original_name }}</li>
+    {% empty %}
+      <li class="text-muted">No files attached.</li>
+    {% endfor %}
+  </ul>
+</div>
+
+{% if course.pages %}
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-4 border mb-5">
+      {% for page in course.pages %}
+        <article class="course-page{% if not forloop.first %} d-none{% endif %}" data-page="{{ forloop.counter }}">
+          <div class="text-muted small mb-2">Page {{ forloop.counter }} of {{ course.pages|length }}</div>
+          <h2 class="h5">{{ page.title }}</h2>
+          <div class="lesson-body">{{ page.content }}</div>
+        </article>
+      {% endfor %}
+      <div class="d-flex justify-content-between align-items-center mt-4">
+        <button class="btn btn-outline-secondary" type="button" id="prev-page" disabled>Previous</button>
+        <div class="small text-muted" id="page-indicator">1 / {{ course.pages|length }}</div>
+        <button class="btn btn-primary" type="button" id="next-page" {% if course.pages|length < 2 %}disabled{% endif %}>Next</button>
+      </div>
+    </div>
+  </div>
+{% else %}
+  <div class="alert alert-info">Course content is not available yet.</div>
+{% endif %}
+{% endblock %}
+
+{% block rag %}
+<div class="rag-bar py-3">
+  <div class="container">
+    <div id="rag-answer" class="rag-answer small mb-2 d-none bg-black bg-opacity-25 rounded p-2"></div>
+    <form id="rag-form" class="d-flex gap-2 align-items-center">
+      {% csrf_token %}
+      <label class="visually-hidden" for="rag-question">Ask the course</label>
+      <input id="rag-question" name="question" class="form-control" placeholder="Ask a question about this course..." {% if course.status != 'ready' %}disabled{% endif %}>
+      <button class="btn btn-warning text-nowrap" type="submit" {% if course.status != 'ready' %}disabled{% endif %}>Search</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const pages = Array.from(document.querySelectorAll(".course-page"));
+  const prevBtn = document.getElementById("prev-page");
+  const nextBtn = document.getElementById("next-page");
+  const indicator = document.getElementById("page-indicator");
+  let current = 1;
+
+  function showPage(index) {
+    current = Math.min(Math.max(index, 1), pages.length || 1);
+    pages.forEach((page) => {
+      page.classList.toggle("d-none", Number(page.dataset.page) !== current);
+    });
+    if (indicator) indicator.textContent = `${current} / ${pages.length}`;
+    if (prevBtn) prevBtn.disabled = current <= 1;
+    if (nextBtn) nextBtn.disabled = current >= pages.length;
+  }
+
+  prevBtn?.addEventListener("click", () => showPage(current - 1));
+  nextBtn?.addEventListener("click", () => showPage(current + 1));
+
+  const form = document.getElementById("rag-form");
+  const answerBox = document.getElementById("rag-answer");
+  const questionInput = document.getElementById("rag-question");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const question = questionInput.value.trim();
+    if (!question) return;
+    answerBox.classList.remove("d-none");
+    answerBox.textContent = "Searching the course materials...";
+    const body = new FormData(form);
+    const response = await fetch("{% url 'ask_rag' course.pk %}", {
+      method: "POST",
+      headers: { "X-CSRFToken": body.get("csrfmiddlewaretoken") },
+      body,
+    });
+    const data = await response.json();
+    answerBox.textContent = data.answer || data.error || "No response.";
+  });
+</script>
+{% endblock %}
